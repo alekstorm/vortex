@@ -19,7 +19,8 @@ if major >= 3:
 
 distutils.core.setup(
     name="vortex",
-    py_modules = ["vortex"],
+    version="0.0.3",
+    packages = ["vortex"],
     author="Alek Storm",
     author_email="alek.storm@gmail.com",
     url="http://alekstorm.github.com/vortex",

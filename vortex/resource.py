@@ -5,29 +5,33 @@ import json
 import mimetypes
 import os.path
 import time
+import uuid
 
+from vortex.app import signed_cookie, xsrf
 from vortex.response import *
 
 class Resource(object):
     SUPPORTED_METHODS = set(['OPTIONS', 'GET', 'HEAD', 'POST', 'PUT', 'DELETE'])
 
-    def __init__(self):
-        self.supported_methods = [method for method in self.SUPPORTED_METHODS if hasattr(self, method.lower())]
-
-    def __call__(self, request):
-        kwargs = dict([(key, value[0]) for key, value in request.arguments.iteritems()])
-        if request.method in self.supported_methods:
-            method_name = request.method.lower()
-        elif request.method == 'HEAD' and 'GET' in self.supported_methods:
-            method_name = 'get'
-        elif request.method.upper() in self.SUPPORTED_METHODS:
-            return HTTPMethodNotAllowedResponse(allowed=self.supported_methods)
-        else:
-            return HTTPNotImplementedResponse()
-
-        method = getattr(self, method_name)
+    def __call__(self, request, *args):
+        method_name = request.method.lower()
         try:
-            return method(request, **kwargs)
+            method = getattr(self, method_name) # TODO check in SUPPORTED_METHODS
+        except AttributeError:
+            if not hasattr(self, method_name):
+                get_method = getattr(self, 'get', None)
+                if request.method == 'HEAD' and get_method is not None:
+                    method = get_method
+                elif request.method.upper() in self.SUPPORTED_METHODS:
+                    return HTTPMethodNotAllowedResponse(allowed=[method for method in self.SUPPORTED_METHODS if hasattr(self, method.lower())])
+                else:
+                    return HTTPNotImplementedResponse()
+            else:
+                raise
+
+        kwargs = dict([(key, value[0]) for key, value in request.arguments.iteritems()])
+        try:
+            return method(request, *args, **kwargs)
         except TypeError as err:
             argspec = inspect.getargspec(method)
             args = argspec.args[2:]

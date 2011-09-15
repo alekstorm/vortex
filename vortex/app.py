@@ -18,12 +18,12 @@ def coerce_response(response):
 
 
 class Application(object):
-    def __init__(self, resource=None):
-        self.resource = resource
+    def __init__(self, root=None):
+        self.root = root
 
     def __call__(self, request):
         try:
-            resource = self.resource
+            resource = self.root
             response = None
             for part in request.path.split('/')[1:]:
                 not_found = False

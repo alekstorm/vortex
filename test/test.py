@@ -1,10 +1,14 @@
+import logging
 from   memcache import Client
 import time
 from   tornado.httpserver import HTTPServer
 from   tornado.ioloop import IOLoop
-from   vortex.app import Application
+
+from   vortex.app import *
 from   vortex.memcached import Memcacher, memcached
 from   vortex.resource import *
+
+logging.getLogger('vortex').addHandler(logging.StreamHandler())
 
 class ArgResource(Resource):
     def get(self, request, a, b='default'):

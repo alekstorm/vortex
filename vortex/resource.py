@@ -63,14 +63,10 @@ class MutableDictResource(DictResource):
 
 
 class StaticFileResource(Resource):
-    CACHE_MAX_AGE = 60*60*24*365*10 # 10 years in seconds
-
-    def __init__(self, path):
+    def __init__(self, path, cache_max_age=60*60*24*365*10): # 10 years in seconds
         Resource.__init__(self)
         self.path = path
-
-    def head(self, request, **kwargs):
-        return self.get(request, **kwargs)
+        self.cache_max_age = cache_max_age
 
     def get(self, request, v=None):
         if not os.path.exists(self.path):
@@ -85,12 +81,11 @@ class StaticFileResource(Resource):
 
         headers = {'Last-Modified': str(email.utils.formatdate(modified))}
 
-        mimetype, encoding = mimetypes.guess_type(self.path)
+        mimetype = mimetypes.guess_type(self.path)[0]
         if mimetype:
             headers['Content-Type'] = mimetype
 
-        cache_time = self.CACHE_MAX_AGE if v else 0
-
+        cache_time = self.cache_max_age if v else 0
         if cache_time > 0:
             headers['Expires'] = str(datetime.datetime.utcnow() + datetime.timedelta(seconds=cache_time))
             headers['Cache-Control'] = 'max-age=' + str(cache_time)
@@ -98,14 +93,15 @@ class StaticFileResource(Resource):
             headers['Cache-Control'] = 'public'
 
         if request.method == 'HEAD':
-            return HTTPResponse(headers=headers)
+            entity = ''
+        else:
+            file = open(self.path, 'rb')
+            try:
+                entity = file.read()
+            finally:
+                file.close()
 
-        file = open(self.path, 'rb')
-        try:
-            contents = HTTPResponse(entity=file.read(), headers=headers)
-        finally:
-            file.close()
-        return contents
+        return HTTPResponse(entity=entity, headers=headers)
 
 
 class StaticDirectoryResource(StaticFileResource):

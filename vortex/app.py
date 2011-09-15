@@ -1,10 +1,55 @@
 import hashlib
 import httplib
 import json
+import logging
+import tornado.web
 import traceback
 import urllib
 
 from vortex.response import *
+
+logger = logging.getLogger('vortex')
+
+def authenticate(retrieve, cookie_name, redirect=None, unauthorized=None):
+    def wrap1(fn):
+        def wrap2(self, request, *args, **kwargs):
+            cookie = request.cookies.get(cookie_name, None)
+            if cookie is not None:
+                user = retrieve(cookie)
+                if user is not None:
+                    return fn(self, request, user, *args, **kwargs)
+            if redirect and request.method in SAFE_METHODS:
+                return HTTPFoundResponse(redirect)
+            return unauthorized(request) if unauthorized else HTTPUnauthorizedResponse()
+        return wrap2
+    return wrap1
+
+def xsrf(cookie):
+    def wrap1(fn):
+        def wrap2(self, request, *args, **kwargs):
+            if request.method not in SAFE_METHODS and ('_xsrf' not in kwargs or cookie not in request.cookies or kwargs.pop('_xsrf') != request.cookies[cookie].value):
+                return HTTPForbiddenResponse(entity='XSRF cookie does not match request argument')
+            return fn(self, request, *args, **kwargs)
+        return wrap2
+    return wrap1
+
+def signed_cookie(secret):
+    def wrap1(fn):
+        def wrap2(self, request, *args, **kwargs):
+            for key, cookie in request.cookies.items():
+                value = tornado.web.decode_signed_value(secret, cookie.key, cookie.value)
+                if value is None:
+                    del request.cookies[key]
+                else:
+                    cookie.set(key, value, value)
+            response = fn(self, request)
+            for key, cookie in getattr(response, 'cookies', {}).iteritems():
+                value = tornado.web.create_signed_value(secret, key, unicode(cookie.value))
+                cookie.set(key, value, value)
+                cookie['path'] = '/'
+            return response
+        return wrap2
+    return wrap1
 
 def coerce_response(response):
     if response is None:

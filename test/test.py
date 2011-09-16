@@ -17,9 +17,13 @@ class ArgResource(Resource):
 @memcached
 class MemcachedResource(Resource):
     def __getitem__(self, name):
-        return MemcachedSubResource()
+        return ExpensiveResource()
 
-class MemcachedSubResource(Resource):
+class NonMemcachedResource(Resource):
+    def __getitem__(self, name):
+        return ExpensiveResource()
+
+class ExpensiveResource(Resource):
     def __init__(self):
         time.sleep(2)
         self.expensive = 'This took a long time to compute'
@@ -61,18 +65,21 @@ class FormatResource(Resource):
     def __getitem__(self, name):
         return {'name': 'Guido', 'interests': [{'title': 'python', 'level': 9}, {'title': 'dancing', 'level': 5}], 'books': ['Python Tutorial', 'Python Reference Manual'], 'address': {'city': 'Mountain View', 'state': 'CA'}}
 
-app = Application(Memcacher(Client(['127.0.0.1:11211']), {
+app = Application({
     '': lambda request: 'Hello World!',
     'static': StaticDirectoryResource(os.path.join(os.path.dirname(__file__), 'static')),
     'json': JSONResource({'a': ['b', 1], 'c': {'d': True}}),
     'args': ArgResource(),
-    'memcached': MemcachedResource(),
+    'memcached': Memcacher(Client(['127.0.0.1:11211']), {
+        'slow': NonMemcachedResource(),
+        'fast': MemcachedResource(),
+    }),
     'format': FormatResource(),
     'auth': {
         'login': LoginResource(),
         'secret': SecretResource(),
         'logout': LogoutResource(),
     },
-}))
+})
 HTTPServer(app).listen(port=3000)
 IOLoop.instance().start()

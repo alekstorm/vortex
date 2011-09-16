@@ -1,6 +1,5 @@
 import datetime
 import email.utils
-import inspect
 import json
 import mimetypes
 import os.path

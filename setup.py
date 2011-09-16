@@ -34,7 +34,7 @@ Topic :: Internet :: WWW/HTTP :: WSGI :: Server
 
 distutils.core.setup(
     name="vortex",
-    version="0.0.4",
+    version="0.0.5",
     packages = ["vortex"],
     package_data = {"vortex": ["README.md"]},
     author="Alek Storm",

@@ -17,6 +17,18 @@ logger = logging.getLogger('vortex')
 
 SAFE_METHODS = ('GET', 'HEAD')
 
+def add_slash(call):
+    def wrap(self, request, *args, **kwargs):
+        return self[''](request, *args, **kwargs)
+    return wrap
+
+def remove_slash(getitem):
+    def wrap(self, name):
+        if len(name) == 0:
+            return self
+        return getitem(self, name)
+    return wrap
+
 def json2xml(data):
     def convert_elem(data, tag='item'):
         root = Element(tag)

@@ -1,13 +1,14 @@
 import logging
 from   memcache import Client
+import os
 import time
 from   tornado.httpserver import HTTPServer
 from   tornado.ioloop import IOLoop
 import uuid
 
-from   vortex import Resource
+from   vortex import Application, HTTPResponse, Resource, authenticate, add_slash, format, json2xml, remove_slash, signed_cookie, xsrf
 from   vortex.memcached import Memcacher, memcached
-from   vortex.resources import *
+from   vortex.resources import DictResource, JSONResource, StaticDirectoryResource
 
 logging.getLogger('vortex').addHandler(logging.StreamHandler())
 
@@ -66,6 +67,20 @@ class FormatResource(Resource):
     def __getitem__(self, name):
         return {'name': 'Guido', 'interests': [{'title': 'python', 'level': 9}, {'title': 'dancing', 'level': 5}], 'books': ['Python Tutorial', 'Python Reference Manual'], 'address': {'city': 'Mountain View', 'state': 'CA'}}
 
+class AddSlashResource(DictResource):
+    def __init__(self):
+        DictResource.__init__(self, {'': lambda request: 'Slash added'})
+
+    @add_slash
+    def __call__(self, request): pass
+
+class RemoveSlashResource(Resource):
+    def __call__(self, request):
+        return 'Slash removed'
+
+    @remove_slash
+    def __getitem__(self, name): pass
+
 app = Application({
     '': lambda request: 'Hello World!',
     'static': StaticDirectoryResource(os.path.join(os.path.dirname(__file__), 'static')),
@@ -81,6 +96,8 @@ app = Application({
         'secret': SecretResource(),
         'logout': LogoutResource(),
     },
+    'add-slash': AddSlashResource(),
+    'remove-slash': RemoveSlashResource(),
 })
 HTTPServer(app).listen(port=3000)
 IOLoop.instance().start()

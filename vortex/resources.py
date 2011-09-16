@@ -7,43 +7,8 @@ import os.path
 import time
 import uuid
 
-from vortex.app import signed_cookie, xsrf
-from vortex.response import *
-
-class Resource(object):
-    SUPPORTED_METHODS = set(['OPTIONS', 'GET', 'HEAD', 'POST', 'PUT', 'DELETE'])
-
-    def __call__(self, request, *args):
-        method_name = request.method.lower()
-        try:
-            method = getattr(self, method_name) # TODO check in SUPPORTED_METHODS
-        except AttributeError:
-            if not hasattr(self, method_name):
-                get_method = getattr(self, 'get', None)
-                if request.method == 'HEAD' and get_method is not None:
-                    method = get_method
-                elif request.method.upper() in self.SUPPORTED_METHODS:
-                    return HTTPMethodNotAllowedResponse(allowed=[method for method in self.SUPPORTED_METHODS if hasattr(self, method.lower())])
-                else:
-                    return HTTPNotImplementedResponse()
-            else:
-                raise
-
-        kwargs = dict([(key, value[0]) for key, value in request.arguments.iteritems()])
-        try:
-            return method(request, *args, **kwargs)
-        except TypeError as err:
-            argspec = inspect.getargspec(method)
-            args = argspec.args[2:]
-            keywords = set(kwargs.keys())
-            missing = set(args[:-len(argspec.defaults)] if argspec.defaults else args) - keywords
-            if len(missing) > 0:
-                return HTTPBadRequestResponse(entity='Missing arguments: '+' '.join(missing))
-            invalid = keywords - set(args)
-            if not argspec.keywords and len(invalid) > 0:
-                return HTTPBadRequestResponse(entity='Unexpected arguments: '+' '.join(invalid))
-            raise
-
+from vortex import Application, HTTPResponse, Resource, authenticate, format, json2xml, signed_cookie, xsrf
+from vortex.responses import *
 
 class DictResource(Resource):
     def __init__(self, sub_resources=None):
@@ -128,15 +93,13 @@ class TraceResource(Resource):
         return str(request) # FIXME
 
 
-class LazyResource(Resource):
+class LazyDictResource(DictResource):
     def __init__(self, lazy_resources=None):
         self.lazy_resources = lazy_resources or {}
-        self.loaded_resources = {}
 
     def __getitem__(self, name):
-        if name not in self.loaded_resources:
+        if name not in self.sub_resources:
             value = self.lazy_resources[name]()
-            self.loaded_resources[name] = value
-        else:
-            value = self.loaded_resources[name]
-        return value
+            self.sub_resources[name] = value
+            return value
+        return DictResource.__getitem__(self, name)

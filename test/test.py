@@ -3,10 +3,11 @@ from   memcache import Client
 import time
 from   tornado.httpserver import HTTPServer
 from   tornado.ioloop import IOLoop
+import uuid
 
-from   vortex.app import *
+from   vortex import Resource
 from   vortex.memcached import Memcacher, memcached
-from   vortex.resource import *
+from   vortex.resources import *
 
 logging.getLogger('vortex').addHandler(logging.StreamHandler())
 

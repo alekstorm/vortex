@@ -1,35 +1,6 @@
-import Cookie
 import httplib
-from   tornado.escape import utf8
 
-SAFE_METHODS = ('GET', 'HEAD')
-
-class HTTPResponse(object):
-    def __init__(self, status_code=httplib.OK, reason=None, entity='', version='HTTP/1.1', headers=None, cookies=None):
-        self.status_code = status_code
-        self.reason = reason
-        self.entity = entity
-        self.version = version
-        self.headers = headers or {}
-        self.cookies = Cookie.SimpleCookie()
-        for key, value in (cookies or {}).iteritems():
-            if isinstance(value, dict):
-                self.cookies[key] = value['value']
-                for name, morsel_attr in value:
-                    self.cookies[key][name] = morsel_attr
-            else:
-                self.cookies[key] = value
-
-    def __str__(self):
-        lines = [utf8(self.version + b' ' + str(self.status_code) + b' ' + (self.reason or httplib.responses[self.status_code]))]
-        self.headers.setdefault('Content-Length', str(len(self.entity)))
-        self.headers.setdefault('Content-Type', 'text/html')
-        for name, values in self.headers.iteritems():
-            lines.extend([utf8(name) + b': ' + utf8(value) for value in (values if isinstance(values, list) else [values])])
-        for cookie in self.cookies.itervalues():
-            lines.append(str(cookie))
-        return b'\r\n'.join(lines) + b'\r\n\r\n' + self.entity
-
+from vortex import HTTPResponse
 
 class HTTPNoContentResponse(HTTPResponse):
     def __init__(self, cookies=None):

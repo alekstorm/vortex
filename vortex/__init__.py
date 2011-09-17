@@ -218,10 +218,8 @@ class Application(object):
                     response.entity = ''
         except:
             response = HTTPResponse(httplib.INTERNAL_SERVER_ERROR, entity=traceback.format_exc())
-        if response.status_code >= 500: # TODO print request
-            logger.error(str(response))
-        elif response.status_code >= 400:
-            logger.warning(str(response))
+        if response.status_code >= 400:
+            logger.log(logging.ERROR if response.status_code >= 500 else logging.WARNING, '%s\n\n%s', str(request), str(response))
         request.write(str(response))
         request.finish()
         return response

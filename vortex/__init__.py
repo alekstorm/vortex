@@ -16,7 +16,7 @@ from   xml.etree.ElementTree import Element, ElementTree, iselement
 
 logger = logging.getLogger('vortex')
 
-SAFE_METHODS = ('GET', 'HEAD')
+SAFE_METHODS = set(('GET', 'HEAD'))
 
 def add_slash(call):
     def wrap(self, request, *args, **kwargs):
@@ -122,7 +122,7 @@ def coerce_response(response):
 
 
 class Resource(object):
-    SUPPORTED_METHODS = set(['OPTIONS', 'GET', 'HEAD', 'POST', 'PUT', 'DELETE'])
+    SUPPORTED_METHODS = set(('OPTIONS', 'GET', 'HEAD', 'POST', 'PUT', 'DELETE'))
 
     def __call__(self, request, *args):
         method_name = request.method.lower()
@@ -142,7 +142,7 @@ class Resource(object):
 
         kwargs = dict([(key, value[0]) for key, value in request.arguments.iteritems()])
         try:
-            return method(request, *args, **kwargs)
+            return coerce_response(method(request, *args, **kwargs))
         except TypeError as err:
             argspec = inspect.getargspec(method)
             args = argspec.args[2:]
@@ -204,7 +204,7 @@ class Application(object):
                     response = HTTPResponse(httplib.NOT_FOUND)
                     break
             if response is None:
-                response = coerce_response(resource(request)) if hasattr(resource, '__call__') else HTTPResponse(httplib.METHOD_NOT_ALLOWED)
+                response = resource(request) if hasattr(resource, '__call__') else HTTPResponse(httplib.METHOD_NOT_ALLOWED)
 
                 if response.status_code == httplib.OK and request.method in SAFE_METHODS:
                     etag = hashlib.sha1(response.entity).hexdigest()
@@ -223,3 +223,18 @@ class Application(object):
         request.write(str(response))
         request.finish()
         return response
+
+
+class VirtualHost(object):
+    def __init__(self, hosts, default=None):
+        self.hosts = hosts
+        self.default = default
+
+    def __call__(self, request):
+        host_val = request.headers.get('Host')
+        if host_val:
+            hostname = host_val.split(':')[0]
+            host = self.hosts.get(request, hostname)
+            if host:
+                return host(request)
+        return self.default(request) if self.default else HTTPResponse(httplib.BAD_REQUEST, 'Virtual host not found')

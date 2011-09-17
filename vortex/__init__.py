@@ -125,24 +125,25 @@ class Resource(object):
     SUPPORTED_METHODS = set(('OPTIONS', 'GET', 'HEAD', 'POST', 'PUT', 'DELETE'))
 
     def __call__(self, request, *args):
-        method_name = request.method.lower()
         try:
-            method = getattr(self, method_name) # TODO check in SUPPORTED_METHODS
+            method_name = request.method.lower()
+            if request.method in self.SUPPORTED_METHODS:
+                method = getattr(self, method_name)
+            else:
+                return HTTPResponse(httplib.NOT_IMPLEMENTED)
         except AttributeError:
             if not hasattr(self, method_name):
                 get_method = getattr(self, 'get', None)
                 if request.method == 'HEAD' and get_method is not None:
                     method = get_method
-                elif request.method.upper() in self.SUPPORTED_METHODS:
-                    return HTTPResponse(httplib.METHOD_NOT_ALLOWED, headers={'Allowed': [method for method in self.SUPPORTED_METHODS if hasattr(self, method.lower())]})
                 else:
-                    return HTTPResponse(httplib.NOT_IMPLEMENTED)
+                    return HTTPResponse(httplib.METHOD_NOT_ALLOWED, headers={'Allowed': [method for method in self.SUPPORTED_METHODS if hasattr(self, method.lower())]})
             else:
                 raise
 
         kwargs = dict([(key, value[0]) for key, value in request.arguments.iteritems()])
         try:
-            return coerce_response(method(request, *args, **kwargs))
+            return method(request, *args, **kwargs)
         except TypeError as err:
             argspec = inspect.getargspec(method)
             args = argspec.args[2:]
@@ -204,7 +205,7 @@ class Application(object):
                     response = HTTPResponse(httplib.NOT_FOUND)
                     break
             if response is None:
-                response = resource(request) if hasattr(resource, '__call__') else HTTPResponse(httplib.METHOD_NOT_ALLOWED)
+                response = coerce_response(resource(request)) if hasattr(resource, '__call__') else HTTPResponse(httplib.METHOD_NOT_ALLOWED)
 
                 if response.status_code == httplib.OK and request.method in SAFE_METHODS:
                     etag = hashlib.sha1(response.entity).hexdigest()
@@ -219,7 +220,7 @@ class Application(object):
         except:
             response = HTTPResponse(httplib.INTERNAL_SERVER_ERROR, entity=traceback.format_exc())
         if response.status_code >= 400:
-            logger.log(logging.ERROR if response.status_code >= 500 else logging.WARNING, '%s\n\n%s', str(request), str(response))
+            logger.log(logging.ERROR if response.status_code >= 500 else logging.WARNING, '%s\n%s', str(request), str(response))
         request.write(str(response))
         request.finish()
         return response

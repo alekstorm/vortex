@@ -1,4 +1,5 @@
 import Cookie
+import collections
 import hashlib
 import httplib
 import inspect
@@ -173,15 +174,68 @@ class HTTPResponse(object):
             else:
                 self.cookies[key] = value
 
-    def __str__(self):
+    def headers_str(self):
         lines = [utf8(self.version + b' ' + str(self.status_code) + b' ' + (self.reason or httplib.responses[self.status_code]))]
-        self.headers.setdefault('Content-Length', str(len(self.entity)))
         self.headers.setdefault('Content-Type', 'text/html')
         for name, values in self.headers.iteritems():
             lines.extend([utf8(name) + b': ' + utf8(value) for value in (values if isinstance(values, list) else [values])])
-        for cookie in self.cookies.itervalues():
-            lines.append(str(cookie))
-        return b'\r\n'.join(lines) + b'\r\n\r\n' + self.entity
+        lines.extend([str(cookie) for cookie in self.cookies.itervalues()])
+        return b'\r\n'.join(lines) + b'\r\n\r\n'
+
+    def __str__(self):
+        return self.headers_str() + self.entity
+
+
+class HTTPStream(object):
+    def __init__(self, response=None):
+        self.headers_written = False
+        self._headers_buffer = None
+        self._headers_listener = None
+        self._body_listener = None
+        self._body_buffer = collections.deque()
+        self.finished = False
+        self._finish_listener = None
+
+        if response is not None:
+            self.write(response)
+
+    def listen(self, headers_listener, body_listener, finish_listener):
+        self._headers_listener = headers_listener
+        self._body_listener = body_listener
+        self._finish_listener = finish_listener
+
+    def write(self, data=None):
+        if not self.headers_written:
+            if self._headers_listener:
+                if self._headers_buffer:
+                    headers = self._headers_buffer
+                else:
+                    headers = data
+                if headers:
+                    data = headers.entity
+                if headers:
+                    if self.finished:
+                        body = ''.join(self._body_buffer)
+                        if data:
+                            body += data
+                        headers.headers.setdefault('Content-Length', str(len(body)))
+                        self._body_buffer = collections.deque((body,))
+                    self._headers_listener(headers)
+                    self.headers_written = True
+            else:
+                self._headers_buffer = data
+                data = None
+        if data is not None:
+            self._body_buffer.append(data)
+        if self._body_listener:
+            while self._body_buffer:
+                self._body_listener(self._body_buffer.popleft())
+
+    def finish(self):
+        self.finished = True
+        self.write()
+        if self._finish_listener:
+            self._finish_listener()
 
 
 class Application(object):
@@ -206,24 +260,42 @@ class Application(object):
                     break
             if response is None:
                 response = coerce_response(resource(request)) if hasattr(resource, '__call__') else HTTPResponse(httplib.METHOD_NOT_ALLOWED)
-
-                if response.status_code == httplib.OK and request.method in SAFE_METHODS:
-                    etag = hashlib.sha1(response.entity).hexdigest()
-                    inm = request.headers.get('If-None-Match')
-                    if inm and inm.find(etag) != -1:
-                        response = HTTPResponse(httplib.NOT_MODIFIED)
-                    else:
-                        response.headers.setdefault('Etag', etag)
-
-                if request.method == 'HEAD':
-                    response.entity = ''
         except:
             response = HTTPResponse(httplib.INTERNAL_SERVER_ERROR, entity=traceback.format_exc())
-        if response.status_code >= 400:
-            logger.log(logging.ERROR if response.status_code >= 500 else logging.WARNING, '%s\n%s', str(request), str(response))
-        request.write(str(response))
-        request.finish()
-        return response
+
+        finished = not hasattr(response, 'write')
+        if finished:
+            response = HTTPStream(response)
+
+        headers_dummy = [None] # hack fixed by 3.0 'nonlocal' keyword
+
+        def write_headers(headers):
+            if headers.status_code == httplib.OK and request.method in SAFE_METHODS:
+                etag = hashlib.sha1(headers.entity).hexdigest()
+                inm = request.headers.get('If-None-Match')
+                if inm and inm.find(etag) != -1:
+                    headers = HTTPResponse(httplib.NOT_MODIFIED)
+                else:
+                    headers.headers.setdefault('Etag', etag)
+
+            if headers.status_code >= 400:
+                logger.log(logging.ERROR if headers.status_code >= 500 else logging.WARNING, '%s\n%s', str(request), str(headers))
+
+            request.write(headers.headers_str())
+            headers_dummy[0] = headers
+
+        def write_body(body):
+            headers = headers_dummy[0]
+            if request.method != 'HEAD' or not 200 <= headers.status_code < 300:
+                request.write(body)
+
+        def finish():
+            request.finish()
+
+        response.listen(write_headers, write_body, finish)
+
+        if finished:
+            response.finish()
 
 
 class VirtualHost(object):

@@ -1,3 +1,4 @@
+from   datetime import timedelta
 import logging
 from   memcache import Client
 import os
@@ -6,7 +7,7 @@ from   tornado.httpserver import HTTPServer
 from   tornado.ioloop import IOLoop
 import uuid
 
-from   vortex import Application, HTTPResponse, Resource, authenticate, add_slash, format, json2xml, remove_slash, signed_cookie, xsrf
+from   vortex import Application, HTTPResponse, HTTPStream, Resource, authenticate, add_slash, format, json2xml, remove_slash, signed_cookie, xsrf
 from   vortex.memcached import Memcacher, memcached
 from   vortex.resources import DictResource, JSONResource, StaticDirectoryResource
 
@@ -81,6 +82,15 @@ class RemoveSlashResource(Resource):
     @remove_slash
     def __getitem__(self, name): pass
 
+class AsyncResource(Resource):
+    def get(self, request):
+        def callback():
+            response.write('This was asynchronous')
+            response.finish()
+        response = HTTPStream(HTTPResponse())
+        IOLoop.instance().add_timeout(timedelta(seconds=2), callback)
+        return response
+
 app = Application({
     '': lambda request: 'Hello World!',
     'static': StaticDirectoryResource(os.path.join(os.path.dirname(__file__), 'static')),
@@ -98,6 +108,7 @@ app = Application({
     },
     'add-slash': AddSlashResource(),
     'remove-slash': RemoveSlashResource(),
+    'async': AsyncResource(),
 })
 HTTPServer(app).listen(port=3000)
 IOLoop.instance().start()

@@ -187,17 +187,19 @@ class HTTPResponse(object):
 
 
 class HTTPStream(object):
-    def __init__(self, response=None):
+    def __init__(self, response=None, etag=True):
         self.headers_written = False
+        self.finished = False
+        self.etag = etag
+        self._chunked = False
         self._headers_buffer = None
         self._headers_listener = None
         self._body_listener = None
         self._body_buffer = collections.deque()
-        self.finished = False
         self._finish_listener = None
 
         if response is not None:
-            self.write(response)
+            self.write(coerce_response(response))
 
     def listen(self, headers_listener, body_listener, finish_listener):
         self._headers_listener = headers_listener
@@ -212,27 +214,33 @@ class HTTPStream(object):
                 else:
                     headers = data
                 if headers:
-                    data = headers.entity
-                if headers:
+                    data = headers.entity + (data if data else '')
                     if self.finished:
-                        body = ''.join(self._body_buffer)
-                        if data:
-                            body += data
+                        body = ''.join(self._body_buffer) + (data if data else '')
                         headers.headers.setdefault('Content-Length', str(len(body)))
                         self._body_buffer = collections.deque((body,))
+                        data = None
+                    else:
+                        headers.headers.setdefault('Transfer-Encoding', 'chunked')
+                        self._chunked = True
+
                     self._headers_listener(headers)
                     self.headers_written = True
             else:
                 self._headers_buffer = data
                 data = None
-        if data is not None:
+        if data is not None and len(data) > 0: # without this, calling ``write('')`` would terminate a chunked response
             self._body_buffer.append(data)
         if self._body_listener:
             while self._body_buffer:
-                self._body_listener(self._body_buffer.popleft())
+                body = self._body_buffer.popleft()
+                if self._chunked:
+                    body = hex(len(body))[2:] + '\r\n' + body
+                self._body_listener(body+'\r\n')
 
     def finish(self):
         self.finished = True
+        self._body_buffer.append('')
         self.write()
         if self._finish_listener:
             self._finish_listener()
@@ -259,18 +267,18 @@ class Application(object):
                     response = HTTPResponse(httplib.NOT_FOUND)
                     break
             if response is None:
-                response = coerce_response(resource(request)) if hasattr(resource, '__call__') else HTTPResponse(httplib.METHOD_NOT_ALLOWED)
+                response = resource(request) if hasattr(resource, '__call__') else HTTPResponse(httplib.METHOD_NOT_ALLOWED)
         except:
             response = HTTPResponse(httplib.INTERNAL_SERVER_ERROR, entity=traceback.format_exc())
 
         finished = not hasattr(response, 'write')
-        if finished:
-            response = HTTPStream(response)
-
-        headers_dummy = [None] # hack fixed by 3.0 'nonlocal' keyword
+        stream = HTTPStream(response) if finished else response
 
         def write_headers(headers):
-            if headers.status_code == httplib.OK and request.method in SAFE_METHODS:
+            if headers.status_code >= 400:
+                logger.log(logging.ERROR if headers.status_code >= 500 else logging.WARNING, '%s\n%s', str(request), str(headers))
+
+            if stream.finished and headers.status_code == httplib.OK and request.method in SAFE_METHODS:
                 etag = hashlib.sha1(headers.entity).hexdigest()
                 inm = request.headers.get('If-None-Match')
                 if inm and inm.find(etag) != -1:
@@ -278,24 +286,12 @@ class Application(object):
                 else:
                     headers.headers.setdefault('Etag', etag)
 
-            if headers.status_code >= 400:
-                logger.log(logging.ERROR if headers.status_code >= 500 else logging.WARNING, '%s\n%s', str(request), str(headers))
-
             request.write(headers.headers_str())
-            headers_dummy[0] = headers
 
-        def write_body(body):
-            headers = headers_dummy[0]
-            if request.method != 'HEAD' or not 200 <= headers.status_code < 300:
-                request.write(body)
-
-        def finish():
-            request.finish()
-
-        response.listen(write_headers, write_body, finish)
+        stream.listen(write_headers, lambda body: request.write(body), lambda: request.finish())
 
         if finished:
-            response.finish()
+            stream.finish()
 
 
 class VirtualHost(object):

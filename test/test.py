@@ -9,7 +9,7 @@ import uuid
 
 from   vortex import Application, HTTPResponse, HTTPStream, Resource, authenticate, add_slash, format, json2xml, remove_slash, signed_cookie, xsrf
 from   vortex.memcached import Memcacher, memcached
-from   vortex.resources import DictResource, JSONResource, StaticDirectoryResource
+from   vortex.resources import DictResource, JSONResource, StaticDirectoryResource, StaticFileResource
 
 logging.getLogger('vortex').addHandler(logging.StreamHandler())
 
@@ -91,9 +91,12 @@ class AsyncResource(Resource):
         IOLoop.instance().add_timeout(timedelta(seconds=2), callback)
         return response
 
+static_dir = os.path.join(os.path.dirname(__file__), 'static')
+
 app = Application({
     '': lambda request: 'Hello World!',
-    'static': StaticDirectoryResource(os.path.join(os.path.dirname(__file__), 'static')),
+    'static': StaticDirectoryResource(static_dir),
+    'favicon.ico': StaticFileResource(os.path.join(static_dir, 'favicon.ico')),
     'json': JSONResource({'a': ['b', 1], 'c': {'d': True}}),
     'args': ArgResource(),
     'memcached': Memcacher(Client(['127.0.0.1:11211']), {

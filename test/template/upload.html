@@ -1,0 +1,54 @@
+<html>
+    <head>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.6.4/jquery.min.js"></script>
+        <script language="javascript">
+            $(function() {
+                var form = $('form');
+                form.submit(function(event) {
+                    event.preventDefault();
+                    $.ajax({
+                        url: '/upload/' + form.find('[name="title"]').val(),
+                        type: 'PUT',
+                        data: form.find('[name="content"]').val(),
+                        processData: false,
+                        success: function() {
+                            window.location.reload();
+                        },
+                    });
+                });
+
+                $('.delete').click(function(event) {
+                    event.preventDefault();
+                    $.ajax({
+                        url: $(this).attr('href'),
+                        type: 'DELETE',
+                        success: function() {
+                            window.location.reload();
+                        },
+                    });
+                });
+            });
+        </script>
+    </head>
+    <body>
+        <form>
+            <table>
+                <tr>
+                    <td><label>Title</label></td>
+                    <td><input type="text" name="title" /></td>
+                <tr>
+                    <td><label>Content</label></td>
+                    <td><textarea name="content"></textarea></td>
+                </tr>
+                <tr>
+                    <td colspan="2"><input type="submit" value="Put" /></td>
+                </tr>
+            </table>
+        </form>
+        <ul>
+            {% for item in items %}
+                <li><a href="/upload/{{item}}" class="delete">x</a> <a href="/upload/{{item}}">{{item}}</a></li>
+            {% end %}
+        </ul>
+    </body>
+</html>

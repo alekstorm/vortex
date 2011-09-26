@@ -17,6 +17,9 @@ class DictResource(Resource):
     def __getitem__(self, name):
         return self.sub_resources[name]
 
+    def __contains__(self, name):
+        return name in self.sub_resources
+
 
 class MutableDictResource(DictResource):
     def __setitem__(self, name, value):
@@ -24,6 +27,34 @@ class MutableDictResource(DictResource):
 
     def __delitem__(self, name):
         del self.sub_resources[name]
+
+
+class UploadResource(MutableDictResource):
+    class ContentResource(Resource):
+        def __init__(self, uploader, name, content):
+            self.uploader = uploader
+            self.name = name
+            self.content = content
+
+        def get(self, request):
+            return self.content
+
+        def put(self, request):
+            self.content = request.body
+            return HTTPNoContentResponse()
+
+        def delete(self, request):
+            del self.uploader[self.name]
+            return HTTPNoContentResponse()
+
+    def __getitem__(self, name):
+        def put(request):
+            if request.method != 'PUT':
+                return HTTPNotFoundResponse()
+            self[name] = self.ContentResource(self, name, request.body)
+            return HTTPCreatedResponse()
+
+        return self.sub_resources.get(name, put)
 
 
 class StaticFileResource(Resource):

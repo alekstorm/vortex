@@ -2,6 +2,11 @@ import httplib
 
 from vortex import HTTPResponse
 
+class HTTPCreatedResponse(HTTPResponse):
+    def __init__(self, cookies=None):
+        HTTPResponse.__init__(self, status_code=httplib.CREATED, cookies=cookies)
+
+
 class HTTPNoContentResponse(HTTPResponse):
     def __init__(self, cookies=None):
         HTTPResponse.__init__(self, status_code=httplib.NO_CONTENT, cookies=cookies)

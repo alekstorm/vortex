@@ -5,13 +5,12 @@ import os
 import time
 from   tornado.httpserver import HTTPServer
 from   tornado.ioloop import IOLoop
+from   tornado.template import Loader
 import uuid
 
 from   vortex import Application, HTTPResponse, HTTPStream, Resource, authenticate, add_slash, format, json2xml, remove_slash, signed_cookie, xsrf
 from   vortex.memcached import Memcacher, memcached
-from   vortex.resources import DictResource, JSONResource, StaticDirectoryResource, StaticFileResource
-
-logging.getLogger('vortex').addHandler(logging.StreamHandler())
+from   vortex.resources import DictResource, JSONResource, StaticDirectoryResource, StaticFileResource, UploadResource
 
 class ArgResource(Resource):
     def get(self, request, a, b='default'):
@@ -68,6 +67,14 @@ class FormatResource(Resource):
     def __getitem__(self, name):
         return {'name': 'Guido', 'interests': [{'title': 'python', 'level': 9}, {'title': 'dancing', 'level': 5}], 'books': ['Python Tutorial', 'Python Reference Manual'], 'address': {'city': 'Mountain View', 'state': 'CA'}}
 
+class UploadFormResource(UploadResource):
+    def __init__(self, loader):
+        UploadResource.__init__(self)
+        self.loader = loader
+
+    def get(self, request):
+        return self.loader.load('upload.html').generate(items=self.sub_resources.keys())
+
 class AddSlashResource(DictResource):
     def __init__(self):
         DictResource.__init__(self, {'': lambda request: 'Slash added'})
@@ -91,7 +98,11 @@ class AsyncResource(Resource):
         IOLoop.instance().add_timeout(timedelta(seconds=2), callback)
         return response
 
+
+logging.getLogger('vortex').addHandler(logging.StreamHandler())
+
 static_dir = os.path.join(os.path.dirname(__file__), 'static')
+loader = Loader(os.path.join(os.path.dirname(__file__), 'template'))
 
 app = Application({
     '': lambda request: 'Hello World!',
@@ -112,6 +123,7 @@ app = Application({
     'add-slash': AddSlashResource(),
     'remove-slash': RemoveSlashResource(),
     'async': AsyncResource(),
+    'upload': UploadFormResource(loader),
 })
 HTTPServer(app).listen(port=3000)
 IOLoop.instance().start()

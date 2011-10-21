@@ -72,7 +72,7 @@ def authenticate(retrieve, cookie_name, redirect=None, unauthorized=None):
         def wrap2(self, request, *args, **kwargs):
             cookie = request.cookies.get(cookie_name, None)
             if cookie is not None:
-                user = retrieve(cookie)
+                user = retrieve(self, cookie)
                 if user is not None:
                     return fn(self, request, user, *args, **kwargs)
             if redirect and request.method in SAFE_METHODS:
@@ -159,10 +159,9 @@ class Resource(object):
 
 
 class HTTPResponse(object):
-    def __init__(self, status_code=httplib.OK, reason=None, entity='', version='HTTP/1.1', headers=None, cookies=None):
+    def __init__(self, status_code=httplib.OK, reason=None, version='HTTP/1.1', headers=None, cookies=None):
         self.status_code = status_code
         self.reason = reason
-        self.entity = entity
         self.version = version
         self.headers = headers or {}
         self.cookies = Cookie.SimpleCookie()
@@ -174,16 +173,13 @@ class HTTPResponse(object):
             else:
                 self.cookies[key] = value
 
-    def headers_str(self):
+    def __str__(self):
         lines = [utf8(self.version + b' ' + str(self.status_code) + b' ' + (self.reason or httplib.responses[self.status_code]))]
         self.headers.setdefault('Content-Type', 'text/html')
         for name, values in self.headers.iteritems():
             lines.extend([utf8(name) + b': ' + utf8(value) for value in (values if isinstance(values, list) else [values])])
         lines.extend([str(cookie) for cookie in self.cookies.itervalues()])
         return b'\r\n'.join(lines) + b'\r\n\r\n'
-
-    def __str__(self):
-        return self.headers_str() + self.entity
 
 
 class HTTPStream(object):
@@ -198,15 +194,15 @@ class HTTPStream(object):
         self._body_buffer = collections.deque()
         self._finish_listener = None
 
-        if response is not None:
-            self.write(coerce_response(response))
+        if headers:
+            self.write(coerce_response(headers))
 
     def listen(self, headers_listener, body_listener, finish_listener):
         self._headers_listener = headers_listener
         self._body_listener = body_listener
         self._finish_listener = finish_listener
 
-    def write(self, data=None):
+    def write(self, data=''):
         if not self.headers_written:
             if self._headers_listener:
                 if self._headers_buffer:
@@ -214,12 +210,12 @@ class HTTPStream(object):
                 else:
                     headers = data
                 if headers:
-                    data = headers.entity + (data if data else '')
+                    data = headers.entity + data
                     if self.finished:
-                        body = ''.join(self._body_buffer) + (data if data else '')
+                        body = ''.join(self._body_buffer) + data
                         headers.headers.setdefault('Content-Length', str(len(body)))
                         self._body_buffer = collections.deque((body,))
-                        data = None
+                        data = ''
                     else:
                         headers.headers.setdefault('Transfer-Encoding', 'chunked')
                         self._chunked = True
@@ -228,8 +224,9 @@ class HTTPStream(object):
                     self.headers_written = True
             else:
                 self._headers_buffer = data
-                data = None
-        if data is not None and len(data) > 0: # without this, calling ``write('')`` would terminate a chunked response
+                data = ''
+        body_writer = HTTPBodyStream()
+        if len(data) > 0: # without this, calling ``write('')`` would terminate a chunked response
             self._body_buffer.append(data)
         if self._body_listener:
             while self._body_buffer:

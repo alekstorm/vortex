@@ -112,9 +112,7 @@ def signed_cookie(secret):
     return wrap1
 
 def coerce_response(response):
-    if response is None:
-        response = HTTPResponse(httplib.NO_CONTENT)
-    elif isinstance(response, basestring):
+    if isinstance(response, basestring):
         response = HTTPResponse(entity=response)
     elif isinstance(response, dict):
         response = HTTPResponse(entity=json.dumps(response), headers={'Content-Type': 'application/json'})
@@ -162,10 +160,11 @@ class Resource(object):
 
 
 class HTTPResponse(object):
-    def __init__(self, status_code=httplib.OK, reason=None, version='HTTP/1.1', headers=None, cookies=None):
+    def __init__(self, status_code=httplib.OK, reason=None, version='HTTP/1.1', entity='', headers=None, cookies=None):
         self.status_code = status_code
         self.reason = reason
         self.version = version
+        self.entity = entity
         self.headers = headers or {}
         self.cookies = Cookie.SimpleCookie()
         for key, value in (cookies or {}).iteritems():
@@ -178,7 +177,6 @@ class HTTPResponse(object):
 
     def __str__(self):
         lines = [utf8(self.version + b' ' + str(self.status_code) + b' ' + (self.reason or httplib.responses[self.status_code]))]
-        self.headers.setdefault('Content-Type', 'text/html')
         for name, values in self.headers.iteritems():
             lines.extend([utf8(name) + b': ' + utf8(value) for value in (values if isinstance(values, list) else [values])])
         lines.extend([str(cookie) for cookie in self.cookies.itervalues()])
@@ -186,64 +184,44 @@ class HTTPResponse(object):
 
 
 class HTTPStream(object):
-    def __init__(self, response=None, etag=True):
-        self.headers_written = False
-        self.finished = False
-        self.etag = etag
+    def __init__(self, request, response):
+        self._request = request
+        self._response = response
+        self._buffer = []
+        self._headers_written = False
+        self._finished = False
         self._chunked = False
-        self._headers_buffer = None
-        self._headers_listener = None
-        self._body_listener = None
-        self._body_buffer = collections.deque()
-        self._finish_listener = None
+        self.write(response.entity)
 
-        if headers:
-            self.write(coerce_response(headers))
+    def write(self, data):
+        self._buffer.append(data)
 
-    def listen(self, headers_listener, body_listener, finish_listener):
-        self._headers_listener = headers_listener
-        self._body_listener = body_listener
-        self._finish_listener = finish_listener
+    def _write_headers(self):
+        self._request.write(str(self._response))
+        self._headers_written = True
 
-    def write(self, data=''):
-        if not self.headers_written:
-            if self._headers_listener:
-                if self._headers_buffer:
-                    headers = self._headers_buffer
-                else:
-                    headers = data
-                if headers:
-                    data = headers.entity + data
-                    if self.finished:
-                        body = ''.join(self._body_buffer) + data
-                        headers.headers.setdefault('Content-Length', str(len(body)))
-                        self._body_buffer = collections.deque((body,))
-                        data = ''
-                    else:
-                        headers.headers.setdefault('Transfer-Encoding', 'chunked')
-                        self._chunked = True
+    def flush(self, data=None):
+        if self._finished:
+            raise RuntimeError('Cannot flush a finished stream')
+        if data is not None:
+            self.write(data)
+        if not self._headers_written:
+            self._response.headers.setdefault('Transfer-Encoding', 'chunked')
+            self._write_headers()
+            self._chunked = True
+        body = ''.join(self._buffer)
+        del self._buffer[:]
+        if self._chunked:
+            self._request.write(hex(len(body))[2:]+'\r\n')
+        self._request.write(body+'\r\n')
 
-                    self._headers_listener(headers)
-                    self.headers_written = True
-            else:
-                self._headers_buffer = data
-                data = ''
-        body_writer = HTTPBodyStream()
-        if len(data) > 0: # without this, calling ``write('')`` would terminate a chunked response
-            self._body_buffer.append(data)
-        if self._body_listener:
-            while self._body_buffer:
-                body = self._body_buffer.popleft()
-                if self._chunked:
-                    body = hex(len(body))[2:] + '\r\n' + body
-                self._body_listener(body+'\r\n')
-
-    def finish(self):
-        self.finished = True
-        self._body_buffer.append('')
-        self.write()
-        if self._finish_listener:
-            self._finish_listener()
+    def finish(self, data=''):
+        if not self._headers_written:
+            self._response.headers.setdefault('Content-Length', str(len(''.join(self._buffer)+data)))
+            self._write_headers()
+        self.flush(data)
+        self._request.finish()
+        self._finished = True
 
 
 class Application(object):
@@ -267,31 +245,27 @@ class Application(object):
                     response = HTTPResponse(httplib.NOT_FOUND)
                     break
             if response is None:
-                response = resource(request) if hasattr(resource, '__call__') else HTTPResponse(httplib.METHOD_NOT_ALLOWED)
+                response = coerce_response(resource(request)) if hasattr(resource, '__call__') else HTTPResponse(httplib.METHOD_NOT_ALLOWED)
         except:
             response = HTTPResponse(httplib.INTERNAL_SERVER_ERROR, entity=traceback.format_exc())
 
-        finished = not hasattr(response, 'write')
-        stream = HTTPStream(response) if finished else response
+        if isinstance(response, HTTPResponse):
+            if response.status_code >= 400:
+                logger.log(logging.ERROR if response.status_code >= 500 else logging.WARNING, '%s\n%s', str(request), str(response))
 
-        def write_headers(headers):
-            if headers.status_code >= 400:
-                logger.log(logging.ERROR if headers.status_code >= 500 else logging.WARNING, '%s\n%s', str(request), str(headers))
-
-            if stream.finished and headers.status_code == httplib.OK and request.method in SAFE_METHODS:
-                etag = hashlib.sha1(headers.entity).hexdigest()
+            if response.status_code == httplib.OK and request.method in SAFE_METHODS:
+                etag = hashlib.sha1(response.entity).hexdigest()
                 inm = request.headers.get('If-None-Match')
                 if inm and inm.find(etag) != -1:
-                    headers = HTTPResponse(httplib.NOT_MODIFIED)
+                    response = HTTPResponse(httplib.NOT_MODIFIED)
                 else:
-                    headers.headers.setdefault('Etag', etag)
+                    response.headers.setdefault('Etag', etag)
 
-            request.write(headers.headers_str())
-
-        stream.listen(write_headers, lambda body: request.write(body), lambda: request.finish())
-
-        if finished:
-            stream.finish()
+            response.headers.setdefault('Content-Length', str(len(response.entity)))
+            response.headers.setdefault('Content-Type', 'text/html')
+            request.write(str(response))
+            request.write(response.entity+'\r\n')
+            request.finish()
 
 
 class VirtualHost(object):

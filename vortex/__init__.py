@@ -102,7 +102,7 @@ def signed_cookie(secret):
                     del request.cookies[key]
                 else:
                     cookie.set(key, value, value)
-            response = fn(self, request)
+            response = fn(self, request, *args, **kwargs)
             for key, cookie in getattr(response, 'cookies', {}).iteritems():
                 value = tornado.web.create_signed_value(secret, key, unicode(cookie.value))
                 cookie.set(key, value, value)

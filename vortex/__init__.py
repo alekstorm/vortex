@@ -90,6 +90,9 @@ def xsrf(cookie):
         return wrap2
     return wrap1
 
+def xsrf_form_html(cookie):
+    return r'''<script language="javascript">var r=document.cookie.match('\\b%s=([^;]*)\\b');document.write("<input type=\"hidden\" name=\"_xsrf\" value=\""+(r?r[1]:'')+"\" />");</script>''' % cookie
+
 def signed_cookie(secret):
     def wrap1(fn):
         def wrap2(self, request, *args, **kwargs):

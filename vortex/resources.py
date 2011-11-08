@@ -63,7 +63,7 @@ class StaticFileResource(Resource):
         self.path = path
         self.cache_max_age = cache_max_age
 
-    def get(self, request, v=None):
+    def get(self, request, **kwargs):
         if not os.path.exists(self.path):
             return HTTPNotFoundResponse()
         if not os.path.isfile(self.path):
@@ -80,7 +80,7 @@ class StaticFileResource(Resource):
         if mimetype:
             headers['Content-Type'] = mimetype
 
-        cache_time = self.cache_max_age if v else 0
+        cache_time = self.cache_max_age if len(kwargs) > 0 else 0
         if cache_time > 0:
             headers['Expires'] = str(datetime.datetime.utcnow() + datetime.timedelta(seconds=cache_time))
             headers['Cache-Control'] = 'max-age=' + str(cache_time)

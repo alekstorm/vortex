@@ -311,7 +311,7 @@ class Application(object):
                 if inm and inm.find(etag) != -1:
                     response = HTTPResponse(httplib.NOT_MODIFIED)
                 else:
-                    response.headers.setdefault('Etag', etag)
+                    response.headers.setdefault('Etag', '"%s"' % etag)
 
             response.headers.setdefault('Content-Type', 'text/html')
             HTTPStream(request, response).finish()

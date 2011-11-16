@@ -121,7 +121,7 @@ def signed_cookie(secret):
 
 def coerce_response(response):
     if isinstance(response, basestring):
-        response = HTTPResponse(entity=response)
+        response = HTTPResponse(entity=response, headers={'Content-Type': 'text/html'})
     elif isinstance(response, dict):
         response = HTTPResponse(entity=json.dumps(response), headers={'Content-Type': 'application/json'})
     elif iselement(response):
@@ -268,6 +268,14 @@ class HTTPStream(object):
         body += final
         if not self._headers_written:
             self._response.headers.setdefault('Content-Length', str(len(body)))
+            etag = self._response.headers.setdefault('Etag', '"%s"' % hashlib.sha1(body).hexdigest())
+            inm = self._request.headers.get('If-None-Match', '')
+            if inm and 200 <= self._response.status_code < 300:
+                if self._request.method not in SAFE_METHODS:
+                    self._response.status_code = httplib.PRECONDITION_FAILED
+                elif inm.find(etag) != -1 or inm == '*':
+                    self._response.status_code = httplib.NOT_MODIFIED
+                body = ''
             self._write_headers()
         self._flush_body(body)
         if self._chunked:
@@ -301,19 +309,10 @@ class Application(object):
         except:
             response = HTTPResponse(httplib.INTERNAL_SERVER_ERROR, entity=traceback.format_exc())
 
-        if isinstance(response, HTTPResponse):
+        if response:
             if response.status_code >= 400:
                 logger.log(logging.ERROR if response.status_code >= 500 else logging.WARNING, '%s\n%s', str(request), str(response))
 
-            if response.status_code == httplib.OK and request.method in SAFE_METHODS:
-                etag = hashlib.sha1(response.entity).hexdigest()
-                inm = request.headers.get('If-None-Match')
-                if inm and inm.find(etag) != -1:
-                    response = HTTPResponse(httplib.NOT_MODIFIED)
-                else:
-                    response.headers.setdefault('Etag', '"%s"' % etag)
-
-            response.headers.setdefault('Content-Type', 'text/html')
             HTTPStream(request, response).finish()
 
 

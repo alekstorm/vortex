@@ -7,6 +7,7 @@ except ImportError:
         from StringIO import StringIO as BytesIO
 import Cookie
 import collections
+from   email.utils import formatdate
 from   gzip import GzipFile
 import hashlib
 import httplib
@@ -225,6 +226,7 @@ class HTTPStream(object):
         self._finished = False
         self._chunked = False
         self._encoders = [encoder(request, response) for encoder in encoders]
+        self._response.headers.setdefault('Date', formatdate(timeval=None, localtime=False, usegmt=True))
         self.write(response.entity)
 
     def write(self, data):

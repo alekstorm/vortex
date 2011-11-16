@@ -200,11 +200,10 @@ class HTTPStream(object):
         self._request.write(str(self._response))
         self._headers_written = True
 
-    def flush(self, data=None):
+    def flush(self, data=''):
         if self._finished:
             raise RuntimeError('Cannot flush a finished stream')
-        if data is not None:
-            self.write(data)
+        self.write(data)
         if not self._headers_written:
             self._response.headers.setdefault('Transfer-Encoding', 'chunked')
             self._write_headers()
@@ -213,7 +212,8 @@ class HTTPStream(object):
         del self._buffer[:]
         if self._chunked:
             self._request.write(hex(len(body))[2:]+'\r\n')
-        self._request.write(body+'\r\n')
+        if len(body) > 0:
+            self._request.write(body)
 
     def finish(self, data=''):
         if not self._headers_written:
@@ -261,11 +261,8 @@ class Application(object):
                 else:
                     response.headers.setdefault('Etag', etag)
 
-            response.headers.setdefault('Content-Length', str(len(response.entity)))
             response.headers.setdefault('Content-Type', 'text/html')
-            request.write(str(response))
-            request.write(response.entity+'\r\n')
-            request.finish()
+            HTTPStream(request, response).finish()
 
 
 class VirtualHost(object):

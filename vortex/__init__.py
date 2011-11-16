@@ -1,5 +1,13 @@
+try:
+    import BytesIO
+except ImportError:
+    try:
+        from cStringIO import StringIO as BytesIO
+    except ImportError:
+        from StringIO import StringIO as BytesIO
 import Cookie
 import collections
+from   gzip import GzipFile
 import hashlib
 import httplib
 import inspect
@@ -117,7 +125,7 @@ def coerce_response(response):
     elif isinstance(response, dict):
         response = HTTPResponse(entity=json.dumps(response), headers={'Content-Type': 'application/json'})
     elif iselement(response):
-        xml = StringIO.StringIO()
+        xml = StringIO()
         ElementTree(response).write(xml)
         response = HTTPResponse(entity=xml.getvalue(), headers={'Content-Type': 'application/xml'})
     return response
@@ -183,14 +191,40 @@ class HTTPResponse(object):
         return b'\r\n'.join(lines) + b'\r\n\r\n'
 
 
-class HTTPStream(object):
+class GzipEncoder(object):
     def __init__(self, request, response):
+        response.headers['Vary'] = response.headers.get('Vary', '') + ',Accept-Encoding'
+        self._accepted = 'gzip' in request.headers.get('Accept-Encoding', '').replace(' ','').split(',')
+        if self._accepted:
+            self._value = BytesIO()
+            self._file = GzipFile(mode='wb', fileobj=self._value)
+            response.headers['Content-Encoding'] = response.headers.get('Content-Encoding', '') + ',gzip'
+
+    def encode(self, data):
+        if self._accepted:
+            self._file.write(data)
+            self._file.flush()
+            data = self._value.getvalue()
+            self._value.truncate(0)
+            self._value.seek(0)
+        return data
+
+    def finish(self, data):
+        if self._accepted:
+            data = self.encode(data)
+            self._file.close()
+        return data
+
+
+class HTTPStream(object):
+    def __init__(self, request, response, encoders=[GzipEncoder]):
         self._request = request
         self._response = response
         self._buffer = []
         self._headers_written = False
         self._finished = False
         self._chunked = False
+        self._encoders = [encoder(request, response) for encoder in encoders]
         self.write(response.entity)
 
     def write(self, data):
@@ -208,18 +242,36 @@ class HTTPStream(object):
             self._response.headers.setdefault('Transfer-Encoding', 'chunked')
             self._write_headers()
             self._chunked = True
+        self._flush_body(self._encode_body())
+
+    def _encode_body(self):
         body = ''.join(self._buffer)
+        for encoder in self._encoders:
+            body = encoder.encode(body)
+        return body
+
+    def _flush_body(self, body):
         del self._buffer[:]
-        if self._chunked:
-            self._request.write(hex(len(body))[2:]+'\r\n')
-        if len(body) > 0:
+        len_body = len(body)
+        if len_body > 0:
+            if self._chunked:
+                self._request.write(hex(len_body)[2:]+'\r\n')
+                body += '\r\n'
             self._request.write(body)
 
     def finish(self, data=''):
+        self.write(data)
+        body = self._encode_body()
+        final = ''
+        for encoder in self._encoders:
+            final = encoder.finish(final)
+        body += final
         if not self._headers_written:
-            self._response.headers.setdefault('Content-Length', str(len(''.join(self._buffer)+data)))
+            self._response.headers.setdefault('Content-Length', str(len(body)))
             self._write_headers()
-        self.flush(data)
+        self._flush_body(body)
+        if self._chunked:
+            self._request.write('0\r\n\r\n')
         self._request.finish()
         self._finished = True
 

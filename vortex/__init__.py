@@ -192,7 +192,7 @@ class HTTPResponse(object):
         return b'\r\n'.join(lines) + b'\r\n\r\n'
 
 
-class GzipEncoder(object):
+class _GzipEncoder(object):
     def __init__(self, request, response):
         response.headers['Vary'] = response.headers.get('Vary', '') + ',Accept-Encoding'
         self._accepted = 'gzip' in request.headers.get('Accept-Encoding', '').replace(' ','').split(',')
@@ -218,7 +218,7 @@ class GzipEncoder(object):
 
 
 class HTTPStream(object):
-    def __init__(self, request, response, encoders=[GzipEncoder]):
+    def __init__(self, request, response, encoders=[_GzipEncoder]):
         self._request = request
         self._response = response
         self._buffer = []

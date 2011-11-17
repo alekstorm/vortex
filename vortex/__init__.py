@@ -131,6 +131,9 @@ def coerce_response(response):
         response = HTTPResponse(entity=xml.getvalue(), headers={'Content-Type': 'application/xml'})
     return response
 
+def http_date(timeval):
+    return formatdate(timeval=timeval, localtime=False, usegmt=True)
+
 
 class Resource(object):
     SUPPORTED_METHODS = set(('OPTIONS', 'GET', 'HEAD', 'POST', 'PUT', 'DELETE'))
@@ -226,7 +229,7 @@ class HTTPStream(object):
         self._finished = False
         self._chunked = False
         self._encoders = [encoder(request, response) for encoder in encoders]
-        self._response.headers.setdefault('Date', formatdate(timeval=None, localtime=False, usegmt=True))
+        self._response.headers.setdefault('Date', http_date(None))
         self.write(response.entity)
 
     def write(self, data):

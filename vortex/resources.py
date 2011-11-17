@@ -6,7 +6,7 @@ import os.path
 import time
 import uuid
 
-from vortex import Application, HTTPResponse, Resource, authenticate, format, json2xml, signed_cookie, xsrf
+from vortex import Application, HTTPResponse, Resource, authenticate, format, http_date, json2xml, signed_cookie, xsrf
 from vortex.responses import *
 
 class DictResource(Resource):
@@ -74,7 +74,7 @@ class StaticFileResource(Resource):
         if 'If-Modified-Since' in request.headers and time.mktime(email.utils.parsedate(request.headers['If-Modified-Since'])) >= modified:
             return HTTPNotModifiedResponse()
 
-        headers = {'Last-Modified': str(email.utils.formatdate(modified))}
+        headers = {'Last-Modified': http_date(modified)}
 
         mimetype = mimetypes.guess_type(self.path)[0]
         if mimetype:
@@ -82,7 +82,7 @@ class StaticFileResource(Resource):
 
         cache_time = self.cache_max_age if len(kwargs) > 0 else 0
         if cache_time > 0:
-            headers['Expires'] = str(datetime.datetime.utcnow() + datetime.timedelta(seconds=cache_time))
+            headers['Expires'] = http_date(time.mktime((datetime.datetime.utcnow() + datetime.timedelta(seconds=cache_time)).timetuple()))
             headers['Cache-Control'] = 'max-age=' + str(cache_time)
         else:
             headers['Cache-Control'] = 'public'

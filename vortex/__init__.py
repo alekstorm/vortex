@@ -313,7 +313,7 @@ class Application(object):
 
         if response:
             if response.status_code >= 400:
-                logger.log(logging.ERROR if response.status_code >= 500 else logging.WARNING, '%s\n%s', str(request), str(response))
+                logger.log(logging.ERROR if response.status_code >= 500 else logging.WARNING, '%s\n%s%s', str(request), str(response), response.entity)
 
             HTTPStream(request, response).finish()
 

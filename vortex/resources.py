@@ -99,11 +99,10 @@ class StaticFileResource(Resource):
         return HTTPResponse(entity=entity, headers=headers)
 
 
-class StaticDirectoryResource(StaticFileResource):
     def __getitem__(self, name):
-        if not os.path.isdir(self.path):
-            return HTTPForbiddenResponse(entity='%s is not a directory' % self.path)
-        return StaticDirectoryResource(os.path.join(self.path, name))
+        if not self.os.path.isdir(self.path):
+            raise KeyError()
+        return self.__class__(self.os.path.join(self.path, name))
 
 
 class JSONResource(DictResource):

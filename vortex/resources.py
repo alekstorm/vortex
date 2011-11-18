@@ -6,7 +6,7 @@ import os.path
 import time
 import uuid
 
-from vortex import Application, HTTPResponse, Resource, authenticate, format, http_date, json2xml, signed_cookie, xsrf
+from vortex import Application, HTTPResponse, HTTPStream, Resource, authenticate, format, http_date, json2xml, signed_cookie, xsrf
 from vortex.responses import *
 
 class DictResource(Resource):
@@ -58,19 +58,24 @@ class UploadResource(MutableDictResource):
 
 
 class StaticFileResource(Resource):
-    def __init__(self, path, cache_max_age=60*60*24*365*10): # 10 years in seconds
+    def __init__(self, path, os=os, open=open,
+                 chunk_size=64*2**10,            # 64kB
+                 cache_max_age=60*60*24*365*10): # 10 years in seconds
         Resource.__init__(self)
         self.path = path
+        self.os = os
+        self.open = open
+        self.chunk_size = chunk_size
         self.cache_max_age = cache_max_age
 
     def get(self, request, **kwargs):
-        if not os.path.exists(self.path):
+        if not self.os.path.exists(self.path):
             return HTTPNotFoundResponse()
-        if not os.path.isfile(self.path):
-            return HTTPForbiddenResponse(entity='%s is not a file' % self.path)
+        if not self.os.path.isfile(self.path):
+            return HTTPMethodNotAllowedResponse(allowed=[])
 
         # Don't send the result if the content has not been modified since the If-Modified-Since
-        modified = os.stat(self.path).st_mtime
+        modified = self.os.stat(self.path).st_mtime
         if 'If-Modified-Since' in request.headers and time.mktime(email.utils.parsedate(request.headers['If-Modified-Since'])) >= modified:
             return HTTPNotModifiedResponse()
 
@@ -84,20 +89,25 @@ class StaticFileResource(Resource):
         if cache_time > 0:
             headers['Expires'] = http_date(time.mktime((datetime.datetime.utcnow() + datetime.timedelta(seconds=cache_time)).timetuple()))
             headers['Cache-Control'] = 'max-age=' + str(cache_time)
-        else:
-            headers['Cache-Control'] = 'public'
+
+        response = HTTPResponse(headers=headers)
 
         if request.method == 'HEAD':
-            entity = ''
-        else:
-            file = open(self.path, 'rb')
-            try:
-                entity = file.read()
-            finally:
-                file.close()
+            response.entity = ''
+            return response
 
-        return HTTPResponse(entity=entity, headers=headers)
+        stream = HTTPStream(request, response)
+        file = self.open(self.path, 'rb')
+        try:
+            while True:
+                chunk = file.read(self.chunk_size)
+                if len(chunk) == 0:
+                    break
+                stream.write(chunk)
+        finally:
+            file.close()
 
+        stream.finish()
 
     def __getitem__(self, name):
         if not self.os.path.isdir(self.path):

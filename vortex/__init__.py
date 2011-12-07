@@ -5,8 +5,7 @@ except ImportError:
         from cStringIO import StringIO as BytesIO
     except ImportError:
         from StringIO import StringIO as BytesIO
-import Cookie
-import collections
+from   Cookie import SimpleCookie
 from   email.utils import formatdate
 from   gzip import GzipFile
 import hashlib
@@ -28,53 +27,6 @@ logger = logging.getLogger('vortex')
 
 SAFE_METHODS = set(('GET', 'HEAD'))
 
-def add_slash(call):
-    def wrap(self, request, *args, **kwargs):
-        return self[''](request, *args, **kwargs)
-    return wrap
-
-def remove_slash(getitem):
-    def wrap(self, name):
-        if len(name) == 0:
-            return self
-        return getitem(self, name)
-    return wrap
-
-def json2xml(data):
-    def convert_elem(data, tag='item'):
-        root = Element(tag)
-        if isinstance(data, dict):
-            for key, val in data.iteritems():
-                if isinstance(val, dict) or isinstance(val, list):
-                    root.append(convert_elem(val, key))
-                else:
-                    root.set(key, str(val))
-        elif isinstance(data, list):
-            for item in data:
-                root.append(convert_elem(item))
-        else:
-            root.set('_value', str(data))
-        return root
-
-    return lambda request: convert_elem(data, 'root')
-
-def format(handlers, default=None, unknown=None):
-    def wrap1(getitem):
-        def wrap2(self, name):
-            parts = name.split('.')
-            resource = getitem(self, parts[0])
-            if len(parts) > 1:
-                handler = handlers.get(parts[1], None)
-                if handler:
-                    return handler(resource)
-                if unknown:
-                    return unknown(resource)
-                raise KeyError()
-            if default:
-                return default(resource)
-            raise KeyError()
-        return wrap2
-    return wrap1
 
 def authenticate(retrieve, cookie_name, redirect=None, unauthorized=None):
     def wrap1(fn):

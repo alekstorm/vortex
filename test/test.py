@@ -8,30 +8,12 @@ from   tornado.ioloop import IOLoop
 from   tornado.template import Loader
 import uuid
 
-from   vortex import Application, HTTPResponse, HTTPStream, Resource, authenticate, add_slash, format, json2xml, remove_slash, signed_cookie, xsrf
-from   vortex.memcached import Memcacher, memcached
+from   vortex import Application, HTTPResponse, HTTPStream, Resource, authenticate, signed_cookie, xsrf
 from   vortex.resources import DictResource, JSONResource, StaticDirectoryResource, StaticFileResource, UploadResource
 
 class ArgResource(Resource):
     def get(self, request, a, b='default'):
         return 'Success: a=%s, b=%s' % (a, b)
-
-@memcached
-class MemcachedResource(Resource):
-    def __getitem__(self, name):
-        return ExpensiveResource()
-
-class NonMemcachedResource(Resource):
-    def __getitem__(self, name):
-        return ExpensiveResource()
-
-class ExpensiveResource(Resource):
-    def __init__(self):
-        time.sleep(2)
-        self.expensive = 'This took a long time to compute'
-
-    def get(self, request):
-        return self.expensive
 
 COOKIE_SECRET = str(uuid.uuid4())
 
@@ -62,11 +44,6 @@ class LogoutResource(AppResource):
     def get(self, request, user):
         return HTTPResponse(entity='Bye, '+user, cookies={'user': ''})
 
-class FormatResource(Resource):
-    @format({'json': lambda r: JSONResource(r), 'xml': json2xml})
-    def __getitem__(self, name):
-        return {'name': 'Guido', 'interests': [{'title': 'python', 'level': 9}, {'title': 'dancing', 'level': 5}], 'books': ['Python Tutorial', 'Python Reference Manual'], 'address': {'city': 'Mountain View', 'state': 'CA'}}
-
 class UploadFormResource(UploadResource):
     def __init__(self, loader):
         UploadResource.__init__(self)
@@ -74,20 +51,6 @@ class UploadFormResource(UploadResource):
 
     def get(self, request):
         return self.loader.load('upload.html').generate(items=self.sub_resources.keys())
-
-class AddSlashResource(DictResource):
-    def __init__(self):
-        DictResource.__init__(self, {'': lambda request: 'Slash added'})
-
-    @add_slash
-    def __call__(self, request): pass
-
-class RemoveSlashResource(Resource):
-    def __call__(self, request):
-        return 'Slash removed'
-
-    @remove_slash
-    def __getitem__(self, name): pass
 
 class AsyncResource(Resource):
     def get(self, request):
@@ -110,18 +73,11 @@ app = Application({
     'favicon.ico': StaticFileResource(os.path.join(static_dir, 'favicon.ico')),
     'json': JSONResource({'a': ['b', 1], 'c': {'d': True}}),
     'args': ArgResource(),
-    'memcached': Memcacher(Client(['127.0.0.1:11211']), {
-        'slow': NonMemcachedResource(),
-        'fast': MemcachedResource(),
-    }),
-    'format': FormatResource(),
     'auth': {
         'login': LoginResource(),
         'secret': SecretResource(),
         'logout': LogoutResource(),
     },
-    'add-slash': AddSlashResource(),
-    'remove-slash': RemoveSlashResource(),
     'async': AsyncResource(),
     'upload': UploadFormResource(loader),
 })

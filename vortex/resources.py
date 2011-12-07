@@ -6,7 +6,7 @@ import os.path
 import time
 import uuid
 
-from vortex import Application, HTTPResponse, HTTPStream, Resource, authenticate, format, http_date, json2xml, signed_cookie, xsrf
+from vortex import HTTPStream, Resource, authenticate, http_date, signed_cookie, xsrf
 from vortex.responses import *
 
 class DictResource(Resource):

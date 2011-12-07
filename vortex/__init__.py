@@ -37,22 +37,25 @@ def authenticate(retrieve, cookie_name, redirect=None, unauthorized=None):
                 if user is not None:
                     return fn(self, request, user, *args, **kwargs)
             if redirect and request.method in SAFE_METHODS:
-                return HTTPResponse(httplib.FOUND, headers={'Location': redirect})
-            return unauthorized(request) if unauthorized else HTTPUnauthorizedResponse()
+                return HTTPResponse(HTTPPreamble(httplib.FOUND, headers={'Location': redirect}))
+            return unauthorized(request) if unauthorized else HTTPResponse(HTTPPreamble(httplib.UNAUTHORIZED))
         return wrap2
     return wrap1
+
 
 def xsrf(cookie):
     def wrap1(fn):
         def wrap2(self, request, *args, **kwargs):
             if request.method not in SAFE_METHODS and ('_xsrf' not in kwargs or cookie not in request.cookies or kwargs.pop('_xsrf') != request.cookies[cookie].value):
-                return HTTPResponse(httplib.FORBIDDEN, entity='XSRF cookie does not match request argument')
+                return HTTPResponse(HTTPPreamble(httplib.FORBIDDEN), body='XSRF cookie does not match request argument')
             return fn(self, request, *args, **kwargs)
         return wrap2
     return wrap1
 
+
 def xsrf_form_html(cookie):
     return r'''<script language="javascript">var r=document.cookie.match('\\b%s=([^;]*)\\b');document.write("<input type=\"hidden\" name=\"_xsrf\" value=\""+(r?r[1]:'')+"\" />");</script>''' % cookie
+
 
 def signed_cookie(secret):
     def wrap1(fn):
@@ -72,16 +75,18 @@ def signed_cookie(secret):
         return wrap2
     return wrap1
 
+
 def coerce_response(response):
     if isinstance(response, basestring):
-        response = HTTPResponse(entity=response, headers={'Content-Type': 'text/html'})
+        response = HTTPResponse(HTTPPreamble(headers={'Content-Type': 'text/html'}), body=response)
     elif isinstance(response, dict):
-        response = HTTPResponse(entity=json.dumps(response), headers={'Content-Type': 'application/json'})
+        response = HTTPResponse(HTTPPreamble(headers={'Content-Type': 'application/json'}), body=json.dumps(response))
     elif iselement(response):
         xml = StringIO()
         ElementTree(response).write(xml)
-        response = HTTPResponse(entity=xml.getvalue(), headers={'Content-Type': 'application/xml'})
+        response = HTTPResponse(HTTPPreamble(headers={'Content-Type': 'application/xml'}), body=xml.getvalue())
     return response
+
 
 def http_date(timeval):
     return formatdate(timeval=timeval, localtime=False, usegmt=True)
@@ -96,14 +101,14 @@ class Resource(object):
             if request.method in self.SUPPORTED_METHODS:
                 method = getattr(self, method_name)
             else:
-                return HTTPResponse(httplib.NOT_IMPLEMENTED)
+                return HTTPResponse(HTTPPreamble(httplib.NOT_IMPLEMENTED))
         except AttributeError:
             if not hasattr(self, method_name):
                 get_method = getattr(self, 'get', None)
                 if request.method == 'HEAD' and get_method is not None:
                     method = get_method
                 else:
-                    return HTTPResponse(httplib.METHOD_NOT_ALLOWED, headers={'Allowed': [method for method in self.SUPPORTED_METHODS if hasattr(self, method.lower())]})
+                    return HTTPResponse(HTTPPreamble(httplib.METHOD_NOT_ALLOWED, headers={'Allowed': [method for method in self.SUPPORTED_METHODS if hasattr(self, method.lower())]}))
             else:
                 raise
 
@@ -116,21 +121,20 @@ class Resource(object):
             keywords = set(kwargs.keys())
             missing = set(args[:-len(argspec.defaults)] if argspec.defaults else args) - keywords
             if len(missing) > 0:
-                return HTTPResponse(httplib.BAD_REQUEST, entity='Missing arguments: '+' '.join(missing))
+                return HTTPResponse(HTTPPreamble(httplib.BAD_REQUEST), body='Missing arguments: '+' '.join(missing))
             invalid = keywords - set(args)
             if not argspec.keywords and len(invalid) > 0:
-                return HTTPResponse(httplib.BAD_REQUEST, entity='Unexpected arguments: '+' '.join(invalid))
+                return HTTPResponse(HTTPPreamble(httplib.BAD_REQUEST), body='Unexpected arguments: '+' '.join(invalid))
             raise
 
 
-class HTTPResponse(object):
-    def __init__(self, status_code=httplib.OK, reason=None, version='HTTP/1.1', entity='', headers=None, cookies=None):
+class HTTPPreamble(object):
+    def __init__(self, status_code=httplib.OK, reason=None, version='HTTP/1.1', headers=None, cookies=None):
         self.status_code = status_code
         self.reason = reason
         self.version = version
-        self.entity = entity
         self.headers = headers or {}
-        self.cookies = Cookie.SimpleCookie()
+        self.cookies = SimpleCookie()
         for key, value in (cookies or {}).iteritems():
             if isinstance(value, dict):
                 self.cookies[key] = value['value']
@@ -147,14 +151,23 @@ class HTTPResponse(object):
         return b'\r\n'.join(lines) + b'\r\n\r\n'
 
 
+class HTTPResponse(object):
+    def __init__(self, preamble, body=''):
+        self.preamble = preamble
+        self.body = body
+
+    def __str__(self):
+        return str(self.preamble)+self.body
+
+
 class _GzipEncoder(object):
-    def __init__(self, request, response):
-        response.headers['Vary'] = response.headers.get('Vary', '') + ',Accept-Encoding'
+    def __init__(self, request, preamble):
+        preamble.headers['Vary'] = preamble.headers.get('Vary', '') + ',Accept-Encoding'
         self._accepted = 'gzip' in request.headers.get('Accept-Encoding', '').replace(' ','').split(',')
         if self._accepted:
             self._value = BytesIO()
             self._file = GzipFile(mode='wb', fileobj=self._value)
-            response.headers['Content-Encoding'] = response.headers.get('Content-Encoding', '') + ',gzip'
+            preamble.headers['Content-Encoding'] = preamble.headers.get('Content-Encoding', '') + ',gzip'
 
     def encode(self, data):
         if self._accepted:
@@ -173,22 +186,21 @@ class _GzipEncoder(object):
 
 
 class HTTPStream(object):
-    def __init__(self, request, response, encoders=[_GzipEncoder]):
+    def __init__(self, request, preamble, encoders=[_GzipEncoder]):
         self._request = request
-        self._response = response
+        self._preamble = preamble
         self._buffer = []
         self._headers_written = False
         self._finished = False
         self._chunked = False
-        self._encoders = [encoder(request, response) for encoder in encoders]
-        self._response.headers.setdefault('Date', http_date(None))
-        self.write(response.entity)
+        self._encoders = [encoder(request, preamble) for encoder in encoders]
+        self._preamble.headers.setdefault('Date', http_date(None))
 
     def write(self, data):
         self._buffer.append(data)
 
     def _write_headers(self):
-        self._request.write(str(self._response))
+        self._request.write(str(self._preamble))
         self._headers_written = True
 
     def flush(self, data=''):
@@ -196,7 +208,7 @@ class HTTPStream(object):
             raise RuntimeError('Cannot flush a finished stream')
         self.write(data)
         if not self._headers_written:
-            self._response.headers.setdefault('Transfer-Encoding', 'chunked')
+            self._preamble.headers.setdefault('Transfer-Encoding', 'chunked')
             self._write_headers()
             self._chunked = True
         self._flush_body(self._encode_body())
@@ -259,18 +271,18 @@ class Application(object):
                 else:
                     not_found = True
                 if not_found:
-                    response = HTTPResponse(httplib.NOT_FOUND)
+                    response = HTTPResponse(HTTPPreamble(httplib.NOT_FOUND))
                     break
             if response is None:
-                response = coerce_response(resource(request)) if hasattr(resource, '__call__') else HTTPResponse(httplib.METHOD_NOT_ALLOWED)
+                response = coerce_response(resource(request)) if hasattr(resource, '__call__') else HTTPResponse(HTTPPreamble(httplib.METHOD_NOT_ALLOWED))
         except:
-            response = HTTPResponse(httplib.INTERNAL_SERVER_ERROR, entity=traceback.format_exc())
+            response = HTTPResponse(HTTPPreamble(httplib.INTERNAL_SERVER_ERROR), traceback.format_exc())
 
         if response:
-            if response.status_code >= 400:
-                logger.log(logging.ERROR if response.status_code >= 500 else logging.WARNING, '%s\n%s%s', str(request), str(response), response.entity)
+            if response.preamble.status_code >= 400:
+                logger.log(logging.ERROR if response.preamble.status_code >= 500 else logging.WARNING, '%s\n%s', str(request), str(response))
 
-            HTTPStream(request, response).finish()
+            HTTPStream(request, response.preamble).finish(response.body)
 
 
 class VirtualHost(object):
@@ -285,4 +297,4 @@ class VirtualHost(object):
             host = self.hosts.get(request, hostname)
             if host:
                 return host(request)
-        return self.default(request) if self.default else HTTPResponse(httplib.BAD_REQUEST, 'Virtual host not found')
+        return self.default(request) if self.default else HTTPResponse(HTTPPreamble(httplib.BAD_REQUEST), 'Virtual host not found')

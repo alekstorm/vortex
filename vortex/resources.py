@@ -90,10 +90,9 @@ class StaticFileResource(Resource):
             headers['Expires'] = http_date(time.mktime((datetime.datetime.utcnow() + datetime.timedelta(seconds=cache_time)).timetuple()))
             headers['Cache-Control'] = 'max-age=' + str(cache_time)
 
-        response = HTTPResponse(headers=headers)
+        response = HTTPPreamble(headers=headers)
 
         if request.method == 'HEAD':
-            response.entity = ''
             return response
 
         stream = HTTPStream(request, response)
@@ -120,10 +119,10 @@ class JSONResource(DictResource):
         return JSONResource(DictResource.__getitem__(self, name if not isinstance(self.sub_resources, list) else int(name)))
 
     def get(self, request, callback=None):
-        response = HTTPResponse(entity=json.dumps(self.sub_resources))
+        response = HTTPOkResponse(body=json.dumps(self.sub_resources))
         if callback is not None:
-            response.entity = callback+'('+response.entity+');'
-            response.headers['Content-Type'] = 'application/json-p'
+            response.body = callback+'('+response.entity+');'
+            response.preamble.headers['Content-Type'] = 'application/json-p'
         return response
 
 

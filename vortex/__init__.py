@@ -236,15 +236,7 @@ class HTTPStream(object):
             final = encoder.finish(final)
         body += final
         if not self._headers_written:
-            self._response.headers.setdefault('Content-Length', str(len(body)))
-            etag = self._response.headers.setdefault('Etag', '"%s"' % hashlib.sha1(body).hexdigest())
-            inm = self._request.headers.get('If-None-Match', '')
-            if inm and 200 <= self._response.status_code < 300:
-                if self._request.method not in SAFE_METHODS:
-                    self._response.status_code = httplib.PRECONDITION_FAILED
-                elif inm.find(etag) != -1 or inm == '*':
-                    self._response.status_code = httplib.NOT_MODIFIED
-                body = ''
+            self._preamble.headers.setdefault('Content-Length', str(len(body)))
             self._write_headers()
         self._flush_body(body)
         if self._chunked:

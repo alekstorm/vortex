@@ -1,5 +1,6 @@
 import datetime
 import email.utils
+import hashlib
 import json
 import mimetypes
 import os.path
@@ -79,7 +80,17 @@ class StaticFileResource(Resource):
         if 'If-Modified-Since' in request.headers and time.mktime(email.utils.parsedate(request.headers['If-Modified-Since'])) >= modified:
             return HTTPNotModifiedResponse()
 
-        headers = {'Last-Modified': http_date(modified)}
+        headers = {
+            'Etag': '"%s"' % hashlib.sha1('\0'.join([self.path, str(modified)])).hexdigest(),
+            'Last-Modified': http_date(modified),
+        }
+
+        inm = request.headers.get('If-None-Match', None)
+        if inm:
+            if request.method not in SAFE_METHODS:
+                return HTTPPreconditionFailedResponse()
+            elif inm.find(headers['Etag']) != -1 or inm == '*':
+                return HTTPNotModifiedResponse()
 
         mimetype = mimetypes.guess_type(self.path)[0]
         if mimetype:

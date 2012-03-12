@@ -21,7 +21,7 @@ from   tornado.escape import utf8
 import tornado.web
 import traceback
 import urllib
-from   xml.etree.ElementTree import Element, ElementTree, iselement
+from   xml.etree.ElementTree import ElementTree, iselement
 
 logger = logging.getLogger('vortex')
 
@@ -160,14 +160,19 @@ class HTTPResponse(object):
         return str(self.preamble)+self.body
 
 
+def _csv_append(cur, new):
+    return cur + (',' if cur else '') + new
+
+
 class _GzipEncoder(object):
     def __init__(self, request, preamble):
-        preamble.headers['Vary'] = preamble.headers.get('Vary', '') + ',Accept-Encoding'
+        preamble.headers['Vary'] = _csv_append(preamble.headers.get('Vary', ''), 'Accept-Encoding')
         self._accepted = 'gzip' in request.headers.get('Accept-Encoding', '').replace(' ','').split(',')
         if self._accepted:
             self._value = BytesIO()
             self._file = GzipFile(mode='wb', fileobj=self._value)
-            preamble.headers['Content-Encoding'] = preamble.headers.get('Content-Encoding', '') + ',gzip'
+            content_encoding = preamble.headers.get('Content-Encoding', '')
+            preamble.headers['Content-Encoding'] = _csv_append(preamble.headers.get('Content-Encoding', ''), 'gzip')
 
     def encode(self, data):
         if self._accepted:
@@ -186,7 +191,7 @@ class _GzipEncoder(object):
 
 
 class HTTPStream(object):
-    def __init__(self, request, preamble, encoders=[_GzipEncoder]):
+    def __init__(self, request, preamble, encoders=[]): # FIXME [_GzipEncoder]
         self._request = request
         self._preamble = preamble
         self._buffer = []

@@ -1,6 +1,7 @@
 import datetime
 import email.utils
 import hashlib
+import httplib
 import json
 import mimetypes
 import os.path
@@ -78,7 +79,11 @@ class StaticFileResource(Resource):
         # Don't send the result if the content has not been modified since the If-Modified-Since
         modified = self.os.stat(self.path).st_mtime
 
+        request_range = request.headers.get('Range')
+
+        status_code = httplib.OK
         headers = {
+            'Accept-Ranges': 'bytes',
             'Etag': '"%s"' % hashlib.sha1('\0'.join([self.path, str(modified)])).hexdigest(),
             'Last-Modified': http_date(modified),
         }
@@ -102,16 +107,34 @@ class StaticFileResource(Resource):
             headers['Expires'] = http_date(time.mktime((datetime.datetime.utcnow() + datetime.timedelta(seconds=cache_time)).timetuple()))
             headers['Cache-Control'] = 'max-age=' + str(cache_time)
 
-        response = HTTPPreamble(headers=headers)
+        # FIXME multiple ranges
+        body_range = [0, None]
+        if request_range is not None:
+            body_range = [(int(num) if len(num) > 0 else None) for num in request_range.split('bytes=')[1].split('-')]
+
+        file_size = os.path.getsize(self.path)
+        if body_range[0] is None:
+            body_range = [file_size-body_range[1], file_size-1]
+        elif body_range[1] is None:
+            body_range[1] = file_size-1
+        if request_range is not None:
+            status_code = httplib.PARTIAL_CONTENT
+            headers['Content-Range'] = 'bytes %i-%i/%i' % (body_range[0], body_range[1], file_size)
+
+        response = HTTPPreamble(status_code=status_code, headers=headers)
 
         if request.method == 'HEAD':
             return response
 
         stream = HTTPStream(request, response)
+        size = body_range[1] - body_range[0] + 1
         file = self.open(self.path, 'rb')
+        file.seek(body_range[0])
         try:
             while True:
-                chunk = file.read(self.chunk_size)
+                chunk_size = min(self.chunk_size, size)
+                size -= chunk_size
+                chunk = file.read(chunk_size)
                 if len(chunk) == 0:
                     break
                 stream.write(chunk)
@@ -153,3 +176,21 @@ class LazyDictResource(DictResource):
             self.sub_resources[name] = value
             return value
         return DictResource.__getitem__(self, name)
+
+
+class ParentResource(Resource):
+    def __init__(self, delegate, **data):
+        self.delegate = delegate
+        self.data = data
+
+    def __getitem__(self, name):
+        return self.delegate(name)
+
+
+class SocketIOResource(Resource):
+    def __init__(self, flash_policy_port=843, flash_policy_file=None):
+        self.flash_policy_port = flash_policy_port
+        self.flash_policy_file = flash_policy_file
+
+    def __getitem__(self, name):
+        return 

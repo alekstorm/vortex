@@ -7,7 +7,7 @@ import os.path
 import time
 import uuid
 
-from vortex import HTTPStream, Resource, authenticate, http_date, signed_cookie, xsrf
+from vortex import SAFE_METHODS, HTTPStream, Resource, authenticate, http_date, signed_cookie, xsrf
 from vortex.responses import *
 
 class DictResource(Resource):
@@ -77,20 +77,21 @@ class StaticFileResource(Resource):
 
         # Don't send the result if the content has not been modified since the If-Modified-Since
         modified = self.os.stat(self.path).st_mtime
-        if 'If-Modified-Since' in request.headers and time.mktime(email.utils.parsedate(request.headers['If-Modified-Since'])) >= modified:
-            return HTTPNotModifiedResponse()
 
         headers = {
             'Etag': '"%s"' % hashlib.sha1('\0'.join([self.path, str(modified)])).hexdigest(),
             'Last-Modified': http_date(modified),
         }
 
+        if 'If-Modified-Since' in request.headers and time.mktime(email.utils.parsedate(request.headers['If-Modified-Since'])) >= modified:
+            return HTTPNotModifiedResponse(headers=headers)
+
         inm = request.headers.get('If-None-Match', None)
         if inm:
             if request.method not in SAFE_METHODS:
                 return HTTPPreconditionFailedResponse()
             elif inm.find(headers['Etag']) != -1 or inm == '*':
-                return HTTPNotModifiedResponse()
+                return HTTPNotModifiedResponse(headers=headers)
 
         mimetype = mimetypes.guess_type(self.path)[0]
         if mimetype:

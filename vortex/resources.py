@@ -8,7 +8,7 @@ import os.path
 import time
 import uuid
 
-from vortex import SAFE_METHODS, HTTPStream, Resource, authenticate, http_date, signed_cookie, xsrf
+from vortex import SAFE_METHODS, HTTPStream, Resource, authenticate, http_date, parse_range_header, signed_cookie, xsrf
 from vortex.responses import *
 
 class DictResource(Resource):
@@ -61,7 +61,7 @@ class UploadResource(MutableDictResource):
 
 class StaticFileResource(Resource):
     def __init__(self, path, os=os, open=open,
-                 chunk_size=64*2**10,            # 64kB
+                 chunk_size=0x1000,              # 64kB
                  cache_max_age=60*60*24*365*10): # 10 years in seconds
         Resource.__init__(self)
         self.path = path
@@ -108,15 +108,8 @@ class StaticFileResource(Resource):
             headers['Cache-Control'] = 'max-age=' + str(cache_time)
 
         # FIXME multiple ranges
-        body_range = [0, None]
-        if request_range is not None:
-            body_range = [(int(num) if len(num) > 0 else None) for num in request_range.split('bytes=')[1].split('-')]
-
         file_size = os.path.getsize(self.path)
-        if body_range[0] is None:
-            body_range = [file_size-body_range[1], file_size-1]
-        elif body_range[1] is None:
-            body_range[1] = file_size-1
+        body_range = parse_range_header(request_range, file_size)
         if request_range is not None:
             status_code = httplib.PARTIAL_CONTENT
             headers['Content-Range'] = 'bytes %i-%i/%i' % (body_range[0], body_range[1], file_size)

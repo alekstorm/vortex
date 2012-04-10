@@ -92,6 +92,18 @@ def http_date(timeval):
     return formatdate(timeval=timeval, localtime=False, usegmt=True)
 
 
+def parse_range_header(header, size):
+    body_range = [0, None]
+    if header is not None:
+        body_range = [(int(num) if len(num) > 0 else None) for num in header.split('bytes=')[1].split('-')]
+
+    if body_range[0] is None:
+        body_range = [size-body_range[1], size-1]
+    elif body_range[1] is None:
+        body_range[1] = size-1
+    return body_range
+
+
 class Resource(object):
     SUPPORTED_METHODS = set(('OPTIONS', 'GET', 'HEAD', 'POST', 'PUT', 'DELETE'))
 
